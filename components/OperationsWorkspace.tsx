@@ -38,6 +38,7 @@ export type OperationalOrder = {
   status: string
   createdAt?: string
   cancelled?: boolean
+  archived?: boolean
   intakeVerifiedAt?: string | null
   manifestId?: string | null
   items?: { name: string; quantity: number; weight: number; packing?: string }[]
@@ -195,7 +196,7 @@ export default function OperationsWorkspace({
 
   // Auto-group verified orders into trucks if none are assigned yet
   useEffect(() => {
-    const verifiedReady = orders.filter(o => !o.cancelled && o.intakeVerifiedAt)
+    const verifiedReady = orders.filter(o => !o.archived && !o.cancelled && o.intakeVerifiedAt)
     if (verifiedReady.length === 0) return
 
     const allAssigned = driversList.flatMap(d => d.ticket?.assignedResis || [])
@@ -356,7 +357,7 @@ export default function OperationsWorkspace({
   }, [loadPage])
 
   const verifiedOrders = useMemo(
-    () => orders.filter(order => !order.cancelled && !order.manifestId && order.intakeVerifiedAt),
+    () => orders.filter(order => !order.archived && !order.cancelled && !order.manifestId && order.intakeVerifiedAt),
     [orders],
   )
   const routes = useMemo(
@@ -1074,9 +1075,9 @@ export default function OperationsWorkspace({
   // ----------------- MANIFESTS PAGE -----------------
   if (page === 'manifests') {
     // Orders yang sudah diverifikasi fisik
-    const verifiedReadyOrders = orders.filter(o => !o.cancelled && o.intakeVerifiedAt)
+    const verifiedReadyOrders = orders.filter(o => !o.archived && !o.cancelled && o.intakeVerifiedAt)
     // Orders yang belum diverifikasi
-    const unverifiedOrders = orders.filter(o => !o.cancelled && !o.intakeVerifiedAt)
+    const unverifiedOrders = orders.filter(o => !o.archived && !o.cancelled && !o.intakeVerifiedAt)
 
     function handlePrintTruckManifest(driver: Driver, truckOrders: OperationalOrder[]) {
       if (truckOrders.length === 0) return

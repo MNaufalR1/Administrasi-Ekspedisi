@@ -26,6 +26,7 @@ export type OrderRow = {
   packing: string | null
   cancelled?: boolean
   cancelled_at?: string | null
+  archived?: boolean
   intake_verified_at?: string | null
   manifest_id?: string | null
 }

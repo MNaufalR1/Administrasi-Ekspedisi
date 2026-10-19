@@ -13,8 +13,6 @@ type AuthScreenProps = {
   onSignIn: (email: string, password: string) => Promise<void>
   onSignUp: (name: string, email: string, password: string) => Promise<void>
   onPublicTrack: () => void
-  onDemoAdmin?: () => void
-  onDemoFinance?: () => void
 }
 
 function positionPupils(
@@ -142,8 +140,6 @@ export default function AuthScreen({
   onSignIn,
   onSignUp,
   onPublicTrack,
-  onDemoAdmin,
-  onDemoFinance,
 }: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>("signin")
   const [name, setName] = useState("")
@@ -319,32 +315,6 @@ export default function AuthScreen({
                 {mode === "signin" ? "Daftar sekarang" : "Masuk"}
               </button>
             </p>
-
-            {(onDemoAdmin || onDemoFinance) && (
-              <div className="mt-5 border-t border-slate-200/80 pt-4">
-                <p className="mb-2 text-center text-xs font-medium text-slate-500">Akses Cepat (Demo / Uji Coba)</p>
-                <div className="flex flex-col gap-2">
-                  {onDemoAdmin && (
-                    <button
-                      type="button"
-                      onClick={onDemoAdmin}
-                      className="w-full rounded-lg bg-[var(--brand-700)] py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[var(--brand-800)]"
-                    >
-                      Masuk sebagai Staf Admin (Operasional)
-                    </button>
-                  )}
-                  {onDemoFinance && (
-                    <button
-                      type="button"
-                      onClick={onDemoFinance}
-                      className="w-full rounded-lg border border-slate-300 bg-white py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      Masuk sebagai Staf Keuangan
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
 
             <button type="button" className="auth-track-link" onClick={onPublicTrack}>
               Lacak pengiriman tanpa masuk

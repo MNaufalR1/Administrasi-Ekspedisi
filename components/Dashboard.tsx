@@ -4,8 +4,8 @@ import Image from 'next/image'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   Truck, LayoutDashboard, Package, MapPin, Bell, LogOut, Menu,
-  Search, Headphones, Plus, CheckCircle, AlertCircle, AlertTriangle, Printer, Pencil, Trash2,
-  Wallet, FileText, CreditCard, Settings2, BadgeCheck, FileSpreadsheet, Mail, Phone,
+  Search, Headphones, Plus, CheckCircle, AlertCircle, AlertTriangle, Printer, Pencil, Trash2, MoreHorizontal, Archive, ArchiveRestore,
+  Wallet, FileText, Settings2, FileSpreadsheet, Mail, Phone,
   Users, ClipboardList, History, Navigation,
   type LucideIcon,
 } from 'lucide-react'
@@ -35,6 +35,7 @@ type Order = {
   createdAt?: string
   quotedPrice?: number | null
   cancelled?: boolean
+  archived?: boolean
   intakeVerifiedAt?: string | null
   manifestId?: string | null
 }
@@ -278,9 +279,7 @@ const menus: Record<Role, [Page, LucideIcon, string][]> = {
   'Staf Keuangan': [
     ['finance-dashboard', Wallet, 'Dashboard Keuangan'],
     ['finance-invoices', FileText, 'Invoice & Tagihan'],
-    ['finance-payments', CreditCard, 'Pembayaran & COD'],
     ['finance-rates', Settings2, 'Pengaturan Tarif'],
-    ['finance-approvals', BadgeCheck, 'Persetujuan Harga'],
     ['finance-reports', FileSpreadsheet, 'Laporan Keuangan'],
     ['orders', Package, 'Daftar Order'],
     ['tracking', MapPin, 'Tracking'],
@@ -316,6 +315,7 @@ function StatusBadge({ status }: { status: string }) {
   const config: Record<string, string> = {
     Diterima: 'status-info',
     Dibatalkan: 'status-danger',
+    Diarsipkan: 'status-neutral',
     'Dalam Perjalanan': 'status-warning',
     'Sedang Diantar': 'status-info',
     Digudang: 'status-warning',
@@ -349,11 +349,12 @@ function PageHeader({ title, subtitle, action }: { title: string; subtitle: stri
 }
 
 function DashboardPage({ orders, onOpenOrders }: { orders: Order[]; onOpenOrders: () => void }) {
-  const count = (statuses: string[]) => orders.filter(x => statuses.includes(normalizeStatus(x.status))).length
-  const total = orders.length
+  const activeOrders = orders.filter(order => !order.archived)
+  const count = (statuses: string[]) => activeOrders.filter(x => statuses.includes(normalizeStatus(x.status))).length
+  const total = activeOrders.length
   const inTransit = count(['Dalam Perjalanan', 'Sedang Diantar'])
   const delivered = count(['Terkirim'])
-  const riskyOrders = orders.filter(order => isAtRisk(order)).sort((a, b) =>
+  const riskyOrders = activeOrders.filter(order => isAtRisk(order)).sort((a, b) =>
     (estimatedArrival(a)?.getTime() ?? 0) - (estimatedArrival(b)?.getTime() ?? 0)
   )
   const needsAttention = count(['Gagal']) + riskyOrders.length
@@ -481,16 +482,20 @@ function DashboardPage({ orders, onOpenOrders }: { orders: Order[]; onOpenOrders
   )
 }
 
-function OrdersPage({ orders, role, query, statusFilter, setStatusFilter, setQuery, pg, setPg, onAdd, onExport, onRowClick, onPrintReceipt, onEdit, onDelete }: {
+function OrdersPage({ orders, role, canManageOrders, query, statusFilter, setStatusFilter, setQuery, pg, setPg, onAdd, onExport, onRowClick, onPrintReceipt, onEdit, onArchive, onDelete }: {
   orders: Order[]; role: Role; query: string; statusFilter: string; setStatusFilter: (s: string) => void
   setQuery: (s: string) => void; pg: number; setPg: (n: number) => void; onAdd: () => void; onRowClick: (resi: string) => void
   onExport: () => void
   onPrintReceipt: (order: Order) => void
-  onEdit: (order: Order) => void; onDelete: (order: Order) => void
+  canManageOrders: boolean
+  onEdit: (order: Order) => void; onArchive: (order: Order, archived: boolean) => void; onDelete: (order: Order) => void
 }) {
   const per = 8
-  const canManageOrders = role === 'Admin'
-  const filtered = orders.filter(x => (x.resi + x.cust + x.tujuan + x.asal).toLowerCase().includes(query.toLowerCase()) && (!statusFilter || normalizeStatus(x.cancelled ? 'Dibatalkan' : x.status) === statusFilter))
+  const filtered = orders.filter(x =>
+    (statusFilter === 'Diarsipkan' ? x.archived : !x.archived) &&
+    (x.resi + x.cust + x.tujuan + x.asal).toLowerCase().includes(query.toLowerCase()) &&
+    (!statusFilter || statusFilter === 'Diarsipkan' || normalizeStatus(x.cancelled ? 'Dibatalkan' : x.status) === statusFilter)
+  )
   const pages = Math.max(1, Math.ceil(filtered.length / per))
   const shown = filtered.slice((pg - 1) * per, pg * per)
 
@@ -501,7 +506,7 @@ function OrdersPage({ orders, role, query, statusFilter, setStatusFilter, setQue
           {role === 'Admin' && <button onClick={onExport} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 font-semibold text-[var(--text)] hover:bg-[var(--panel-soft)]">
             <FileSpreadsheet className="h-4 w-4" />Ekspor CSV
           </button>}
-          {role === 'Admin' && <button onClick={onAdd} className="inline-flex items-center gap-2 rounded-lg bg-[var(--brand-600)] px-4 py-2.5 font-semibold text-white hover:bg-[var(--brand-700)]">
+          {canManageOrders && <button onClick={onAdd} className="inline-flex items-center gap-2 rounded-lg bg-[var(--brand-600)] px-4 py-2.5 font-semibold text-white hover:bg-[var(--brand-700)]">
             <Plus className="h-4 w-4" />Order baru
           </button>}
         </div>
@@ -516,7 +521,7 @@ function OrdersPage({ orders, role, query, statusFilter, setStatusFilter, setQue
           </div>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPg(1) }} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--panel-soft)] px-3 text-sm text-[var(--text)] outline-none focus:border-[var(--brand-600)]">
             <option value="">Semua status</option>
-            {[...STATUSES, 'Dibatalkan'].map(s => <option key={s} value={s}>{s}</option>)}
+            {[...STATUSES, 'Dibatalkan', 'Diarsipkan'].map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
 
@@ -543,28 +548,45 @@ function OrdersPage({ orders, role, query, statusFilter, setStatusFilter, setQue
                     <td className="text-[var(--text)]">{x.asal} → {x.tujuan}</td>
                     <td className="mono-tabular text-right text-[var(--text)]">{Number(x.berat).toLocaleString('id-ID', { maximumFractionDigits: 1 })} kg</td>
                     <td className="text-[var(--text)]">{x.layanan}</td>
-                    <td><StatusBadge status={x.cancelled ? 'Dibatalkan' : x.status} /></td>
+                    <td><StatusBadge status={x.archived ? 'Diarsipkan' : x.cancelled ? 'Dibatalkan' : x.status} /></td>
                     <td className="mono-tabular text-right text-[var(--text)]">{x.cod}</td>
                     <td className="text-right">
-                      <div className="inline-flex items-center gap-2">
-                        <button type="button" aria-label={`Cetak surat tanda terima ${x.resi}`} title="Cetak Surat Tanda Terima"
-                          onClick={event => { event.stopPropagation(); onPrintReceipt(x) }}
-                          className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-soft)] hover:bg-[var(--panel-soft)]">
-                          <Printer className="h-4 w-4" />
-                        </button>
-                        {canManageOrders && <> 
-                          <button type="button" aria-label={`Edit order ${x.resi}`} title={x.manifestId ? 'Order sudah masuk manifest' : x.cancelled ? 'Order sudah dibatalkan' : 'Edit order'} disabled={Boolean(x.manifestId || x.cancelled)}
-                            onClick={event => { event.stopPropagation(); onEdit(x) }}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-soft)] hover:bg-[var(--panel-soft)] disabled:cursor-not-allowed disabled:opacity-40">
-                            <Pencil className="h-4 w-4" />
+                      <details className="group relative inline-block text-left">
+                        <summary
+                          aria-label={`Aksi untuk order ${x.resi}`}
+                          onClick={event => event.stopPropagation()}
+                          className="inline-flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg border border-[var(--border)] bg-white text-[var(--text)] hover:bg-[var(--panel-soft)] [&::-webkit-details-marker]:hidden"
+                        >
+                          <MoreHorizontal className="h-5 w-5" />
+                        </summary>
+                        <div className="absolute right-0 z-40 mt-1 w-52 rounded-xl border border-[var(--border)] bg-white p-1.5 text-left shadow-lg">
+                          <button type="button"
+                            onClick={event => { event.stopPropagation(); event.currentTarget.closest('details')?.removeAttribute('open'); onPrintReceipt(x) }}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--text)] hover:bg-[var(--panel-soft)]">
+                            <Printer className="h-4 w-4" />Cetak tanda terima
                           </button>
-                          <button type="button" aria-label={`Batalkan order ${x.resi}`} title={x.manifestId ? 'Barang sudah masuk manifest' : x.cancelled ? 'Order sudah dibatalkan' : 'Batalkan order'} disabled={Boolean(x.manifestId || x.cancelled)}
-                            onClick={event => { event.stopPropagation(); onDelete(x) }}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--danger)]/20 bg-[var(--danger-soft)] text-[var(--danger)] hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </>}
-                      </div>
+                          {canManageOrders && <>
+                            {!x.archived && <button type="button" disabled={Boolean(x.manifestId || x.cancelled)}
+                              title={x.manifestId ? 'Order sudah masuk manifest' : x.cancelled ? 'Order sudah dibatalkan' : 'Ubah order'}
+                              onClick={event => { event.stopPropagation(); event.currentTarget.closest('details')?.removeAttribute('open'); onEdit(x) }}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--text)] hover:bg-[var(--panel-soft)] disabled:cursor-not-allowed disabled:opacity-40">
+                              <Pencil className="h-4 w-4" />Ubah order
+                            </button>}
+                            <button type="button" disabled={Boolean(!x.archived && (x.manifestId || x.cancelled))}
+                              title={x.archived ? 'Pulihkan order dari arsip' : x.manifestId ? 'Order sudah masuk manifest' : x.cancelled ? 'Order dibatalkan' : 'Arsipkan order'}
+                              onClick={event => { event.stopPropagation(); event.currentTarget.closest('details')?.removeAttribute('open'); onArchive(x, !x.archived) }}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[var(--text)] hover:bg-[var(--panel-soft)] disabled:cursor-not-allowed disabled:opacity-40">
+                              {x.archived ? <><ArchiveRestore className="h-4 w-4" />Pulihkan dari arsip</> : <><Archive className="h-4 w-4" />Arsipkan order</>}
+                            </button>
+                            {!x.cancelled && <button type="button" disabled={Boolean(x.manifestId)}
+                              title={x.manifestId ? 'Pengiriman sudah masuk manifest' : 'Batalkan order'}
+                              onClick={event => { event.stopPropagation(); event.currentTarget.closest('details')?.removeAttribute('open'); onDelete(x) }}
+                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] disabled:cursor-not-allowed disabled:opacity-40">
+                              <Trash2 className="h-4 w-4" />Batalkan order
+                            </button>}
+                          </>}
+                        </div>
+                      </details>
                     </td>
                   </tr>
                 ))}
@@ -831,6 +853,7 @@ function Dashboard() {
   const [newOrderOpen, setNewOrderOpen] = useState(false)
   const [editingResi, setEditingResi] = useState<string | null>(null)
   const [deletingOrder, setDeletingOrder] = useState<Order | null>(null)
+  const [archiveOrderDraft, setArchiveOrderDraft] = useState<Order | null>(null)
   const [newOrderDraft, setNewOrderDraft] = useState<OrderDraft>(emptyOrderDraft())
   const [tradeFormOpen, setTradeFormOpen] = useState(false)
   const [editingTradeId, setEditingTradeId] = useState<string | null>(null)
@@ -840,6 +863,7 @@ function Dashboard() {
   const [pricingError, setPricingError] = useState('')
   const [pricingLoading, setPricingLoading] = useState(false)
   const [useRecommendedPrice, setUseRecommendedPrice] = useState(false)
+  const canManageOrders = !publicGuest && (role === 'Admin' || role === 'Staf Keuangan')
 
   const toast = useCallback((text: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now()
@@ -875,7 +899,7 @@ function Dashboard() {
         resi: r.resi, cust: r.customer_name, asal: r.origin_city, tujuan: r.destination_city,
         berat: Number(r.weight_kg), layanan: r.service_type, status: r.cancelled ? 'Dibatalkan' : r.status, cod: r.payment_type,
         createdAt: r.created_at, quotedPrice: r.quoted_price == null ? null : Number(r.quoted_price),
-        cancelled: Boolean(r.cancelled), intakeVerifiedAt: r.intake_verified_at || null, manifestId: r.manifest_id || null,
+        cancelled: Boolean(r.cancelled), archived: Boolean(r.archived), intakeVerifiedAt: r.intake_verified_at || null, manifestId: r.manifest_id || null,
         items: r.order_items || [], senderDescription: r.sender_description || '',
         recipientAddress: r.recipient_address || '', notes: r.notes || '', packing: r.packing || '',
         namaBarang: (r.order_items || []).map(item => item.name).join(', '),
@@ -1055,22 +1079,6 @@ function Dashboard() {
     setPage('tracking')
   }
 
-  function demoAdmin() {
-    setRole('Admin')
-    setPublicGuest(false)
-    setLoggedIn(true)
-    setPage('dashboard')
-    toast('Mode Staf Admin (Operasional) diaktifkan')
-  }
-
-  function demoFinance() {
-    setRole('Staf Keuangan')
-    setPublicGuest(false)
-    setLoggedIn(true)
-    setPage('dashboard')
-    toast('Mode Staf Keuangan diaktifkan')
-  }
-
   async function signOut() {
     if (publicGuest) {
       setPublicGuest(false)
@@ -1088,8 +1096,8 @@ function Dashboard() {
   }
 
   async function saveOrder() {
-    if (role !== 'Admin') {
-      toast('Hanya Admin yang dapat mengubah order.', 'error')
+    if (!canManageOrders) {
+      toast('Akun ini tidak memiliki akses untuk mengubah order.', 'error')
       return
     }
     const draft = { ...newOrderDraft }
@@ -1114,7 +1122,9 @@ function Dashboard() {
     const layanan = draft.layanan
     const status = currentOrder?.status || 'Diterima'
     const cod = draft.cod
-    const quotedPrice = useRecommendedPrice ? recommendedOrderPrice(draft, pricingRules) : null
+    const quotedPrice = role === 'Admin' && useRecommendedPrice
+      ? recommendedOrderPrice(draft, pricingRules)
+      : currentOrder?.quotedPrice ?? null
     const derivedPacking = items.map(item => item.packing).filter(Boolean).join(', ')
 
     if (!resi || !cust || !senderDescription || !recipientAddress || !asal || !tujuan ||
@@ -1123,7 +1133,7 @@ function Dashboard() {
       toast('Lengkapi pelanggan, keterangan pengirim, alamat penerima, rute, dan detail barang dengan benar.', 'error')
       return
     }
-    if (useRecommendedPrice && quotedPrice === null) {
+    if (role === 'Admin' && useRecommendedPrice && quotedPrice === null) {
       toast('Rekomendasi harga belum tersedia untuk rute dan layanan ini.', 'error')
       return
     }
@@ -1135,6 +1145,7 @@ function Dashboard() {
       createdAt: currentOrder?.createdAt || new Date().toISOString(),
       quotedPrice,
       cancelled: currentOrder?.cancelled || false,
+      archived: currentOrder?.archived || false,
       intakeVerifiedAt: currentOrder?.intakeVerifiedAt || null,
       manifestId: currentOrder?.manifestId || null,
     }
@@ -1186,6 +1197,14 @@ function Dashboard() {
   }
 
   function editOrder(order: Order) {
+    if (!canManageOrders) {
+      toast('Akun ini tidak memiliki akses untuk mengubah order.', 'error')
+      return
+    }
+    if (order.archived) {
+      toast('Pulihkan order dari arsip sebelum mengubahnya.', 'error')
+      return
+    }
     if (order.cancelled || order.manifestId) {
       toast('Order yang dibatalkan atau sudah masuk manifest tidak dapat diedit.', 'error')
       return
@@ -1204,7 +1223,7 @@ function Dashboard() {
       })),
       layanan: order.layanan, cod: order.cod, notes: order.notes || '', packing: order.packing || '',
     })
-    setUseRecommendedPrice(order.quotedPrice != null)
+    setUseRecommendedPrice(role === 'Admin' && order.quotedPrice != null)
     setNewOrderOpen(true)
   }
 
@@ -1252,22 +1271,23 @@ function Dashboard() {
         resi: row.resi, cust: row.customer_name, asal: row.origin_city, tujuan: row.destination_city,
         berat: Number(row.weight_kg), layanan: row.service_type, status: row.cancelled ? 'Dibatalkan' : row.status, cod: row.payment_type,
         createdAt: row.created_at, quotedPrice: row.quoted_price == null ? null : Number(row.quoted_price),
-        cancelled: Boolean(row.cancelled), intakeVerifiedAt: row.intake_verified_at || null, manifestId: row.manifest_id || null,
+        cancelled: Boolean(row.cancelled), archived: Boolean(row.archived), intakeVerifiedAt: row.intake_verified_at || null, manifestId: row.manifest_id || null,
         items: row.order_items || [], senderDescription: row.sender_description || '',
         recipientAddress: row.recipient_address || '', notes: row.notes || '', packing: row.packing || '',
       }))
     }
     const filtered = exportRows.filter(order =>
+      (statusFilter === 'Diarsipkan' ? order.archived : !order.archived) &&
       (order.resi + order.cust + order.tujuan + order.asal).toLocaleLowerCase().includes(query.toLocaleLowerCase()) &&
-      (!statusFilter || normalizeStatus(order.status) === statusFilter)
+      (!statusFilter || statusFilter === 'Diarsipkan' || normalizeStatus(order.status) === statusFilter)
     )
     downloadOrdersCsv(filtered)
     toast(`${filtered.length} order diekspor ke CSV.`)
   }
 
   async function confirmCancelOrder() {
-    if (role !== 'Admin') {
-      toast('Hanya Admin yang dapat membatalkan order.', 'error')
+    if (!canManageOrders) {
+      toast('Akun ini tidak memiliki akses untuk membatalkan order.', 'error')
       return
     }
     if (!deletingOrder) {
@@ -1288,6 +1308,30 @@ function Dashboard() {
       : order))
     toast(usingLive ? 'Order berhasil dibatalkan dan dicatat.' : 'Order demo dibatalkan untuk sesi ini.')
     setDeletingOrder(null)
+  }
+
+  async function setOrderArchived(order: Order, archived: boolean) {
+    if (!canManageOrders) {
+      toast('Akun ini tidak memiliki akses untuk mengarsipkan order.', 'error')
+      return
+    }
+    if (order.manifestId || order.cancelled) {
+      toast('Order yang sudah masuk manifest atau dibatalkan tidak dapat diarsipkan.', 'error')
+      return
+    }
+    if (usingLive && supabase) {
+      const { data, error } = await supabase.from('orders').update({ archived })
+        .eq('resi', order.resi).select('resi').maybeSingle()
+      if (error || !data) {
+        toast(error ? `Gagal ${archived ? 'mengarsipkan' : 'memulihkan'} order: ${error.message}` : 'Order tidak ditemukan atau akses ditolak.', 'error')
+        return
+      }
+    }
+    setOrders(current => current.map(item => item.resi === order.resi ? { ...item, archived } : item))
+    setArchiveOrderDraft(null)
+    toast(usingLive
+      ? archived ? 'Order diarsipkan dan riwayatnya tetap tersimpan.' : 'Order dipulihkan dari arsip.'
+      : archived ? 'Order demo diarsipkan untuk sesi ini.' : 'Order demo dipulihkan untuk sesi ini.')
   }
 
   function addTrade() {
@@ -1444,7 +1488,7 @@ function Dashboard() {
     setEditingResi(null)
     setUseRecommendedPrice(false)
     setNewOrderOpen(true)
-    if (!pricingRules && !pricingLoading) void loadPricingRules()
+    if (role === 'Admin' && !pricingRules && !pricingLoading) void loadPricingRules()
   }
 
   if (authLoading) {
@@ -1458,8 +1502,6 @@ function Dashboard() {
       onSignIn={signIn}
       onSignUp={signUp}
       onPublicTrack={publicTrack}
-      onDemoAdmin={demoAdmin}
-      onDemoFinance={demoFinance}
     />
   }
   if (page === 'receipt' && receiptOrder) {
@@ -1712,7 +1754,7 @@ function Dashboard() {
                 <span className="mb-1.5 block">Keterangan order</span>
                 <textarea rows={2} value={newOrderDraft.notes} onChange={e => setNewOrderDraft(d => ({ ...d, notes: e.target.value }))} className="w-full rounded-lg border border-[var(--border)] px-3 py-2.5 text-[var(--text)] outline-none focus:border-[var(--brand-600)]" placeholder="Catatan tambahan untuk resi (opsional)" />
               </label>
-              <section className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 md:col-span-2">
+              {role === 'Admin' && <section className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 md:col-span-2">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-[var(--text)]">Rekomendasi Smart Pricing</p>
@@ -1726,7 +1768,7 @@ function Dashboard() {
                   <input type="checkbox" checked={useRecommendedPrice} disabled={orderRecommendation == null} onChange={event => setUseRecommendedPrice(event.target.checked)} />
                   Gunakan harga rekomendasi pada order
                 </label>
-              </section>
+              </section>}
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -1740,11 +1782,24 @@ function Dashboard() {
       {deletingOrder && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/45 p-4" role="presentation">
           <section className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-6 shadow-[var(--shadow)]" role="alertdialog" aria-modal="true" aria-labelledby="delete-order-title" aria-describedby="delete-order-description">
-            <h2 id="delete-order-title" className="text-lg font-semibold text-[var(--text)]">Batalkan barang ini?</h2>
-            <p id="delete-order-description" className="mt-2 text-sm text-[var(--text-soft)]">Order {deletingOrder.resi} akan ditandai dibatalkan, bukan dihapus. Barang yang sudah masuk manifest tidak dapat dibatalkan.</p>
+            <h2 id="delete-order-title" className="text-lg font-semibold text-[var(--text)]">Batalkan order?</h2>
+            <p id="delete-order-description" className="mt-2 text-sm text-[var(--text-soft)]">Order {deletingOrder.resi} akan ditandai dibatalkan dan tetap tersimpan di riwayat. Pengiriman yang sudah masuk manifest tidak dapat dibatalkan.</p>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setDeletingOrder(null)} className="rounded-lg border border-[var(--border)] px-4 py-2 font-semibold text-[var(--text)]">Batal</button>
               <button type="button" onClick={confirmCancelOrder} className="rounded-lg bg-[var(--danger)] px-4 py-2 font-semibold text-white hover:brightness-95">Konfirmasi pembatalan</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {archiveOrderDraft && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/45 p-4" role="presentation">
+          <section className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-6 shadow-[var(--shadow)]" role="alertdialog" aria-modal="true" aria-labelledby="archive-order-title" aria-describedby="archive-order-description">
+            <h2 id="archive-order-title" className="text-lg font-semibold text-[var(--text)]">Arsipkan order?</h2>
+            <p id="archive-order-description" className="mt-2 text-sm text-[var(--text-soft)]">Order {archiveOrderDraft.resi} akan disembunyikan dari daftar aktif, tetapi tetap tersimpan dan dapat dipulihkan dari filter “Diarsipkan”.</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setArchiveOrderDraft(null)} className="rounded-lg border border-[var(--border)] px-4 py-2 font-semibold text-[var(--text)]">Kembali</button>
+              <button type="button" onClick={() => void setOrderArchived(archiveOrderDraft, true)} className="rounded-lg bg-[var(--brand-600)] px-4 py-2 font-semibold text-white hover:bg-[var(--brand-700)]">Arsipkan order</button>
             </div>
           </section>
         </div>
@@ -1772,7 +1827,7 @@ function Dashboard() {
           <div className="hidden items-center gap-3 border-l border-[var(--border)] pl-3 sm:flex">
             <div className="text-right">
               <p className="text-sm font-semibold text-[var(--text)]">{publicGuest ? 'Tamu' : role === 'Admin' ? 'Staf Admin' : role}</p>
-              <p className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-soft)]">{publicGuest ? 'Pelacakan publik' : role === 'Admin' ? 'Operasional' : 'Baca saja'}</p>
+              <p className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-soft)]">{publicGuest ? 'Pelacakan publik' : role === 'Admin' ? 'Operasional' : 'Keuangan & Order'}</p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--brand-900)] text-sm font-semibold text-white">NE</div>
           </div>
@@ -1784,15 +1839,18 @@ function Dashboard() {
           {page === 'dashboard' && <DashboardPage orders={scope()} onOpenOrders={() => setPage('orders')} />}
           {isFinancePage(page) && role === 'Staf Keuangan' && <FinanceWorkspace page={page} orders={scope()} trade={trade} ready={usingLive} />}
           {page === 'orders' && (
-            <OrdersPage orders={scope()} role={role} query={query} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+            <OrdersPage orders={scope()} role={role} canManageOrders={canManageOrders} query={query} statusFilter={statusFilter} setStatusFilter={setStatusFilter}
               setQuery={setQuery} pg={pg} setPg={setPg} onAdd={openNewOrder} onExport={() => void exportOrders()}
               onRowClick={resi => { setTrack(resi); setPage('tracking') }} onPrintReceipt={order => { setReceiptOrder({ ...order, namaBarang: receiptItemNames[order.resi] || order.namaBarang || '' }); setPage('receipt') }}
-              onEdit={editOrder} onDelete={order => setDeletingOrder(order)} />
+              onEdit={editOrder} onArchive={(order, archived) => {
+                if (archived) setArchiveOrderDraft(order)
+                else void setOrderArchived(order, false)
+              }} onDelete={order => setDeletingOrder(order)} />
           )}
           {(page === 'drivers' || page === 'pengiriman') && (
             <DriverWorkspace
               page={page}
-              orders={orders}
+              orders={orders.filter(order => !order.archived)}
               onNavigate={setPage}
               onTrackResi={resi => { setTrack(resi); setPage('tracking') }}
             />
